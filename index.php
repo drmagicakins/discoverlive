@@ -1,154 +1,333 @@
 <?php
-/**
- * Professional Visitor Tracking & Validation Script
- * Filters out Data Centers / Hosting Bots and handles authentic traffic cleanly.
+declare(strict_types=1);
+
+session_start();
+
+/*
+ * Security headers.
+ *
+ * Geolocation requires HTTPS in normal production use.
  */
+header('Permissions-Policy: geolocation=(self)');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: strict-origin-when-cross-origin');
 
-function getClientIp(): string
-{
-    $keys = [
-        'HTTP_CF_CONNECTING_IP',
-        'HTTP_X_FORWARDED_FOR',
-        'HTTP_X_FORWARDED',
-        'HTTP_CLIENT_IP',
-        'REMOTE_ADDR',
-    ];
-
-    foreach ($keys as $key) {
-        if (empty($_SERVER[$key])) {
-            continue;
-        }
-
-        $ipList = explode(',', $_SERVER[$key]);
-        $ip = trim($ipList[0]);
-
-        if (filter_var($ip, FILTER_VALIDATE_IP)) {
-            return $ip;
-        }
-    }
-
-    return 'Unknown';
+/*
+ * Create a CSRF token for the location submission.
+ */
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
 
-function getIpDetails(string $ip): array
-{
-    $default = [
-        'country' => 'Unknown',
-        'city' => 'Unknown',
-        'region' => 'Unknown',
-        'is_datacenter' => false
-    ];
-
-    if ($ip === 'Unknown' || $ip === '127.0.0.1' || $ip === '::1') {
-        return [
-            'country' => 'Local',
-            'city' => 'Localhost',
-            'region' => 'Local',
-            'is_datacenter' => false
-        ];
-    }
-
-    // Call API with a 5-second timeout safeguard
-    $url = 'https://ipapi.co/' . rawurlencode($ip) . '/json/';
-    $context = stream_context_create([
-        'http' => [
-            'timeout' => 5,
-            'ignore_errors' => true,
-            'header' => "User-Agent: LegalVisitorValidator/1.0\r\n"
-        ],
-    ]);
-
-    $response = @file_get_contents($url, false, $context);
-    if ($response === false) {
-        return $default;
-    }
-
-    $data = json_decode($response, true);
-    if (!is_array($data)) {
-        return $default;
-    }
-
-    // Identify Data Center / Hosting networks 
-    $isDataCenter = false;
-    
-    // Check block type provided by advanced providers or check signature keywords
-    $org = strtolower($data['org'] ?? '');
-    $asn = strtolower($data['asn'] ?? '');
-    
-    $datacenterKeywords = [
-        'digitalocean', 'amazon', 'aws', 'google cloud', 'linode', 
-        'ovh', 'hetzner', 'microsoft', 'azure', 'leaseweb', 'vultr'
-    ];
-
-    foreach ($datacenterKeywords as $keyword) {
-        if (strpos($org, $keyword) !== false || strpos($asn, $keyword) !== false) {
-            $isDataCenter = true;
-            break;
-        }
-    }
-
-    return [
-        'country' => $data['country_name'] ?? 'Unknown',
-        'city' => $data['city'] ?? 'Unknown',
-        'region' => $data['region'] ?? 'Unknown',
-        'is_datacenter' => $isDataCenter
-    ];
-}
-
-// Initialize core tracking metrics
-$ipAddress = getClientIp();
-$location = getIpDetails($ipAddress);
-
-$userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-$referrer = $_SERVER['HTTP_REFERER'] ?? 'Direct visit';
-$timestamp = date('Y-m-d H:i:s');
-$requestUri = $_SERVER['REQUEST_URI'] ?? '/';
-
-// Core Business Logic Execution
-if ($location['is_datacenter'] === false && $ipAddress !== 'Unknown') {
-    
-    // 1. Log Authentic Visitors Only
-    $logFile = __DIR__ . '/visitor_log.txt';
-    $logEntry = "[$timestamp] IP: $ipAddress | Country: {$location['country']} | City: {$location['city']} | Region: {$location['region']} | UA: $userAgent | Referrer: $referrer | URL: $requestUri\n";
-    @file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
-
-    // 2. Dispatch Email Alerts
-    $sendEmail = true; 
-    if ($sendEmail) {
-        $to = 'drmagicakins@gmail.com';
-        $subject = 'New Visitor Log Entry';
-        $message = "A new authentic visitor has accessed your site:\n\n" . $logEntry;
-        $headers = "From: no-reply@mcitng.com\r\n" .
-                   "Reply-To: no-reply@mcitng.com\r\n" .
-                   "X-Mailer: PHP/" . phpversion();
-
-        @mail($to, $subject, $message, $headers);
-    }
-
-    // 3. Process Authentic User Travel Redirection
-    $redirect = true; 
-    $urlRedirect = 'https://www.tourtravelworld.com/travel-agents/nigeria/lagos-state-tour-operator.html'; 
-    if ($redirect) {
-        header("Location: $urlRedirect");
-        exit();
-    }
-}
+$csrfToken = $_SESSION['csrf_token'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
+
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Diagnostics</title>
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1.0">
+
+    <title>Location Verification</title>
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background: #f4f7fb;
+        }
+
+        .card {
+            width: 100%;
+            max-width: 520px;
+            padding: 35px;
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 15px 50px rgba(0,0,0,.12);
+            text-align: center;
+        }
+
+        h1 {
+            margin-top: 0;
+            color: #172033;
+        }
+
+        p {
+            color: #5d6575;
+            line-height: 1.65;
+        }
+
+        .location-icon {
+            width: 70px;
+            height: 70px;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+            background: #edf4ff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px 20px;
+            border: 0;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 12px;
+        }
+
+        #allowBtn {
+            background: #1264ff;
+            color: #fff;
+        }
+
+        #skipBtn {
+            background: #edf0f4;
+            color: #333;
+        }
+
+        #status {
+            margin-top: 18px;
+            font-size: 14px;
+        }
+
+        .privacy {
+            margin-top: 20px;
+            font-size: 12px;
+            color: #777;
+        }
+
+    </style>
+
 </head>
+
 <body>
-    <h1>Connection Properties</h1>
-    <p><strong>IP Address:</strong> <?php echo htmlspecialchars($ipAddress, ENT_QUOTES, 'UTF-8'); ?></p>
-    <p><strong>Country:</strong> <?php echo htmlspecialchars($location['country'], ENT_QUOTES, 'UTF-8'); ?></p>
-    <p><strong>City:</strong> <?php echo htmlspecialchars($location['city'], ENT_QUOTES, 'UTF-8'); ?></p>
-    <p><strong>Region:</strong> <?php echo htmlspecialchars($location['region'], ENT_QUOTES, 'UTF-8'); ?></p>
-    <p><strong>Network Profile:</strong> <?php echo $location['is_datacenter'] ? 'Data Center / Script Bot (Actions Ignored)' : 'Authentic Residential/Mobile Connection'; ?></p>
-    <p><strong>Browser Profile:</strong> <?php echo htmlspecialchars($userAgent, ENT_QUOTES, 'UTF-8'); ?></p>
-    <p><strong>Referrer Path:</strong> <?php echo htmlspecialchars($referrer, ENT_QUOTES, 'UTF-8'); ?></p>
+
+<div class="card">
+
+    <div class="location-icon">
+        📍 <h2>Tour Operators: Find Travel Agencies Companies,Travel Agents</h2>
+    </div>
+
+    <h1>Location Verification</h1>
+
+    <p>
+        To continue, this website would like to use your
+        device's current location.
+    </p>
+
+    <p>
+        Your browser will display a location-permission
+        request. Your location is only obtained if you
+        choose to allow it.
+    </p>
+
+    <button id="allowBtn">
+        Allow Location & Continue
+    </button>
+
+    <button id="skipBtn">
+        Continue Without Location
+    </button>
+
+    <div id="status"></div>
+
+    <div class="privacy">
+        Location access is controlled by your browser.
+    </div>
+
+</div>
+
+<script>
+
+const csrfToken = <?= json_encode($csrfToken) ?>;
+
+const allowBtn = document.getElementById('allowBtn');
+const skipBtn  = document.getElementById('skipBtn');
+const status   = document.getElementById('status');
+
+function setStatus(message) {
+    status.textContent = message;
+}
+
+allowBtn.addEventListener('click', function () {
+
+    if (!window.isSecureContext) {
+
+        setStatus(
+            'Location access requires a secure HTTPS connection.'
+        );
+
+        return;
+    }
+
+    if (!navigator.geolocation) {
+
+        setStatus(
+            'Geolocation is not supported by this browser.'
+        );
+
+        return;
+    }
+
+    setStatus(
+        'Requesting your location. Please respond to the browser permission prompt...'
+    );
+
+    navigator.geolocation.getCurrentPosition(
+
+        function (position) {
+
+            const coords = position.coords;
+
+            const data = {
+                csrf_token: csrfToken,
+
+                latitude: coords.latitude,
+                longitude: coords.longitude,
+
+                accuracy: coords.accuracy,
+
+                altitude:
+                    coords.altitude !== null
+                        ? coords.altitude
+                        : null,
+
+                heading:
+                    coords.heading !== null
+                        ? coords.heading
+                        : null,
+
+                speed:
+                    coords.speed !== null
+                        ? coords.speed
+                        : null,
+
+                location_timestamp: position.timestamp
+            };
+
+            setStatus(
+                'Location obtained. Processing...'
+            );
+
+            fetch('collect.php', {
+
+                method: 'POST',
+
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+
+                body: JSON.stringify(data)
+
+            })
+            .then(response => response.json())
+
+            .then(result => {
+
+                if (result.success) {
+
+                    setStatus(
+                        'Location verification completed.'
+                    );
+
+                    /*
+                     * Optional redirect.
+                     */
+                    if (result.redirect) {
+
+                        window.location.href =
+                            result.redirect;
+                    }
+
+                } else {
+
+                    setStatus(
+                        result.message ||
+                        'Unable to process your location.'
+                    );
+                }
+
+            })
+
+            .catch(error => {
+
+                console.error(error);
+
+                setStatus(
+                    'A server error occurred. Please try again.'
+                );
+            });
+
+        },
+
+        function (error) {
+
+            let message =
+                'Location access was not granted.';
+
+            switch (error.code) {
+
+                case error.PERMISSION_DENIED:
+                    message =
+                        'You denied location permission.';
+                    break;
+
+                case error.POSITION_UNAVAILABLE:
+                    message =
+                        'Your location is currently unavailable.';
+                    break;
+
+                case error.TIMEOUT:
+                    message =
+                        'Location request timed out.';
+                    break;
+            }
+
+            setStatus(message);
+        },
+
+        {
+            enableHighAccuracy: true,
+            timeout: 20000,
+            maximumAge: 0
+        }
+
+    );
+
+});
+
+
+/*
+ * Continue without GPS.
+ *
+ * We deliberately do not silently collect GPS when the
+ * visitor declines.
+ */
+skipBtn.addEventListener('click', function () {
+
+    window.location.href =
+        'https://www.tourtravelworld.com/travel-agents/nigeria/lagos-state-tour-operator.html';
+
+});
+
+</script>
+
 </body>
 </html>
